@@ -17,6 +17,12 @@ SCHEDULE_CODE = "2C"
 TYPE_OF_CUSTOMER = "Retailer"
 DOCUMENT_TYPE = "Invoice"
 
+SCHEDULE_CODES = {
+    'Retailer' : '2C',
+    'Wholesaler' : '2B',
+    'Distributor' : '2B'
+}
+
 TP_1_IL_STRUCTURE = [
     "Schedule Code",
     "Document Date",
