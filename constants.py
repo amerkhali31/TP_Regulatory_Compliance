@@ -13,15 +13,29 @@ PRODUCT_DATA_FILE_NAME = f"{DATA_PATH}/TEST_DATA.xlsx"
 PRODUCT_SHEET_NAME = "Sheet1"
 AGGREGATED_BOOK_PRODUCT_SHEET_NAME = "Products"
 
+MSA_STATUS = "N/A"
 SCHEDULE_CODE = "2C"
 TYPE_OF_CUSTOMER = "Retailer"
 DOCUMENT_TYPE = "Invoice"
-
+COUNTRY = 'USA'
 SCHEDULE_CODES = {
     'Retailer' : '2C',
     'Wholesaler' : '2B',
     'Distributor' : '2B'
 }
+MS_BRANDS = [
+    'Copenhagen',
+    'Grizzly',
+    'Kodiak',
+    'Levi Garrett',
+    'Skoal',
+    'Hawken',
+    'Stokers',
+    'Beechnut',
+    'Longhorn',
+    'Red Man',
+    'Souther Pride'
+]
 
 TP_1_IL_STRUCTURE = [
     "Schedule Code",
@@ -46,6 +60,7 @@ TP_1_IL_STRUCTURE = [
     "UPCs Unit of Measure",
     "Product Description",
     "Manufacturer",
+    "Manufacturer EIN",
     "Brand Family",
     "Unit",
     "Unit Description",
@@ -53,3 +68,5 @@ TP_1_IL_STRUCTURE = [
     "Value",
     "Quantity"
 ]
+
+MANUFACTURERS = ''
