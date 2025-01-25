@@ -69,4 +69,6 @@ TP_1_IL_STRUCTURE = [
     "Quantity"
 ]
 
-MANUFACTURERS = ''
+MANUFACTURERS = {
+    'Swisher' : 'Swish Manu'
+}

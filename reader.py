@@ -5,7 +5,7 @@ from utils.excel_utils import mergeBooks, read_sheet, merge_sheets
 
 # Set Up the Columns I want to read from
 invoice_columns_to_use = "Name Item Qty Amount Balance Num Memo Date".split() + ["Sales Price"]
-prod_cols_to_use = "Item Description Price UPC".split() + ["FED DESCRIPTION", "BRAND", "UM", "Unit", "Unit Description"]
+prod_cols_to_use = "Item Description Price UPC".split() + ["FED DESCRIPTION", "BRAND", "UM", "Unit", "Unit Description", "Total Units"]
 cust_cols_to_use = ["Customer", "Tax item", "Bill to 1", "Bill to 2", "Bill to 3", "Bill to 4", "Bill to 5", "Customer Type","License", "Customer FEIN", "Sales Tax Code"]
 
 # Read The Data
@@ -18,6 +18,7 @@ inv.rename(columns={'Name' : 'Customer'}, inplace=True)
 inv.rename(columns={'Memo' : 'Description'}, inplace=True)
 inv.dropna(subset=['Num'], inplace=True)
 cust['Customer Type'] = 'Retailer'
+prod['Total Units'] = 1
 
 # Process The Data
 merge1 = pd.merge(inv, prod, on='Description')
@@ -63,10 +64,25 @@ df["Brand Family"] = merge2['BRAND']
 df["Unit"] = merge2['Unit']
 df["Unit Description"] = merge2['Unit Description']
 
-df["Weight/Volume"] = "TBD"
-df["Value"] = "TBD"
-df["Quantity"] = "TBD"
-df["Manufacturer"] = "TBD"
+df["Weight/Volume"] = np.where(df['State Description'] == 'MS', merge2['Total Units'], np.nan)
+df["Value"] = np.where(df['State Description'] != 'MS', merge2['Total Units'], np.nan) 
+df["Quantity"] = merge2['Qty']
+df['Manufacturer'] = merge2['BRAND'].map(constants.MANUFACTURERS).fillna('Unknown Manufacturer')
 df["Manufacturer EIN"] = "TBD"
 
-print(df)
+print(df[["Weight/Volume",
+          "Value",
+          "Quantity",
+          "Manufacturer",
+          "Manufacturer EIN",
+          "Unit",
+          "Unit Description",
+          'Brand Family',
+          'UPC Number',
+          'State Description',
+          'Document Number',
+          'Weight/Volume',
+         ]
+        ].head(10))
+
+df.to_excel('test_doc.xlsx', index=False)
