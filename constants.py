@@ -72,3 +72,5 @@ TP_1_IL_STRUCTURE = [
 MANUFACTURERS = {
     'Swisher' : 'Swish Manu'
 }
+
+MANUFACTURER_EINS = {"Swisher"}

@@ -24,8 +24,8 @@ def mergeBooks(invoice_book_name: str, customer_book_name: str, product_book_nam
 def clear_unnamed_columns(df: pd.DataFrame):
     df.drop(columns=[col for col in df.columns if 'Unnamed' in col], inplace=True)
 
-def read_sheet(book_name: str, sheet_name: str, cols: list) -> pd.DataFrame:
-    df = pd.read_excel(book_name, sheet_name=sheet_name, usecols=cols)
+def read_sheet(book_name: str, sheet_name: str, cols: list, dtypes: dict = {}) -> pd.DataFrame:
+    df = pd.read_excel(book_name, sheet_name=sheet_name, usecols=cols, dtype=dtypes)
     clear_unnamed_columns(df)
 
     return df

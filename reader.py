@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from utils.excel_utils import mergeBooks, read_sheet, merge_sheets
 
-# Make an aggregated book just to make viewing easier during development
+# Make an aggregated book just to make viewing exceleasier during development
 #mergeBooks(constants.INVOICE_DATA_FILE_NAME,constants.CUSTOMER_DATA_FILE_NAME,constants.PRODUCT_DATA_FILE_NAME,constants.INVOICE_SHEET_NAME,constants.CUSTOMER_SHEET_NAME,constants.PRODUCT_SHEET_NAME)
 
 
@@ -29,7 +29,7 @@ merge2 = pd.merge(merge1, cust, on='Customer')
 merge2['FED_DESCRIPTION'] = merge2['FED_DESCRIPTION'].fillna('')
 merge2['BRAND'] = merge2['BRAND'].fillna('')
 
-print(f"Columns: {merge2.columns}")
+#print(f"Columns: {merge2.columns}")
 
 condition2 = merge2['BRAND'].apply(
     lambda x: any(brand in x for brand in constants.MS_BRANDS) if isinstance(x, str) else False
@@ -45,7 +45,7 @@ df = pd.DataFrame(columns=constants.TP_1_IL_STRUCTURE)
 
 # Populate the New DataFrame
 df["Schedule Code"] = merge2['Customer Type'].map(constants.SCHEDULE_CODES)
-df["Document Date"] = merge2['Date']
+df["Document Date"] = merge2['Date'].dt.strftime('%m-%d-%Y')
 df["Document Type"] = constants.DOCUMENT_TYPE
 df["Document Number"] = merge2['Num']
 df["Type of Customer"] = merge2['Customer Type']
@@ -66,19 +66,25 @@ df["UPC Number"] = merge2['UPC']
 df["UPCs Unit of Measure"] = merge2['U/M']
 df["Product Description"] = merge2['Description']
 
+# Temporary Series
+df["Temp_Price"] = merge2["Price"]
+df["Temp_Unit"] = merge2["UNIT"]
+
 # In Progress
 df['Manufacturer'] = merge2['BRAND'].map(constants.MANUFACTURERS).fillna('Unknown Manufacturer')
 df["Manufacturer EIN"] = "TBD"
 df["Brand Family"] = merge2['BRAND']
 
 # Complete
-df["Unit"] = 1
+df["Unit"] = merge2["UNIT"]
 df["Unit Description"] = merge2['UNIT DESCRIPTION']
 
 # In Progress
-df["Weight/Volume"] = "TBD"#np.where(df['State Description'] == 'MS', merge2['Total Units'], np.nan)
-df["Value"] = "TBD"#np.where(df['State Description'] != 'MS', merge2['Total Units'], np.nan) 
+df["Weight/Volume"] = np.where(df['State Description'] == 'MS', merge2['UNIT'], np.nan)
+df["Value"] = np.where(df['State Description'] != 'MS', merge2['Price'] / merge2['UNIT'], np.nan) 
 df["Quantity"] = merge2['Qty']
+
+#df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
 
 # print(df[["Weight/Volume",
 #           "Value",
@@ -94,5 +100,16 @@ df["Quantity"] = merge2['Qty']
 #           'Weight/Volume',
 #          ]
 #         ].head(10))
-
-df.to_excel('test_doc.xlsx', index=False)
+filtered_df = df[(df['Unit'].notna()) & (df['Customer FEIN'].notna()) & (df['City'].notna()) & (df['Customer ID'].notna()) & (df['Document Number'] == 6066)]
+print(filtered_df[[
+    'Name',
+    'Product Description',
+    'Manufacturer',
+    'Manufacturer EIN',
+    'Unit',
+    'Weight/Volume',
+    'Value',
+    'Quantity',
+    'Temp_Price'
+]].head(50))
+#df.to_excel('test_doc.xlsx', index=False)
