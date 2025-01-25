@@ -21,7 +21,6 @@ def mergeBooks(invoice_book_name: str, customer_book_name: str, product_book_nam
         sheet2.to_excel(writer, sheet_name=constants.AGGREGATED_BOOK_CUSTOMER_SHEET_NAME, index=False)
         sheet3.to_excel(writer, sheet_name=constants.AGGREGATED_BOOK_PRODUCT_SHEET_NAME, index=False)
 
-
 def clear_unnamed_columns(df: pd.DataFrame):
     df.drop(columns=[col for col in df.columns if 'Unnamed' in col], inplace=True)
 
