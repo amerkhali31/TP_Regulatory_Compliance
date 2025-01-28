@@ -4,10 +4,6 @@ import numpy as np
 from utils.excel_utils import mergeBooks, read_sheet, merge_sheets
 import re
 
-# Make an aggregated book just to make viewing exceleasier during development
-#mergeBooks(constants.INVOICE_DATA_FILE_NAME,constants.CUSTOMER_DATA_FILE_NAME,constants.PRODUCT_DATA_FILE_NAME,constants.INVOICE_SHEET_NAME,constants.CUSTOMER_SHEET_NAME,constants.PRODUCT_SHEET_NAME)
-
-
 # Choose which columns to read out of the quickbooks generated excel report
 invoice_columns_to_use = "Date Num Memo Name Qty Amount Item".split() + ["Sales Price"]
 prod_cols_to_use = "Item Description U/M Price UPC FED_DESCRIPTION BRAND UNIT".split() + ["UNIT DESCRIPTION"]
@@ -56,6 +52,10 @@ choices = ['ECIG', 'MS']
 df = pd.DataFrame(columns=constants.TP_1_IL_STRUCTURE)
 
 
+# Temporary Series
+df["Temp_Price"] = merge2["Price"]
+df["Temp_Unit"] = merge2["UNIT"]
+
 # Populate the New DataFrame
 df["Schedule Code"] = merge2['Customer Type'].map(constants.SCHEDULE_CODES)
 df["Document Date"] = merge2['Date'].dt.strftime('%m-%d-%Y')
@@ -78,45 +78,22 @@ df["Tax Jurisdiction"] = merge2['Sales Tax Code']
 df["UPC Number"] = merge2['UPC']
 df["UPCs Unit of Measure"] = merge2['U/M']
 df["Product Description"] = merge2['Description']
-
-# Temporary Series
-df["Temp_Price"] = merge2["Price"]
-df["Temp_Unit"] = merge2["UNIT"]
+df["Brand Family"] = merge2['BRAND']
+df["Unit"] = merge2['UNIT']
+df["Unit Description"] = merge2['UNIT DESCRIPTION']
+df["Weight/Volume"] = np.where(df['State Description'] == 'MS', '1', '')
+df["Value"] = np.where(df['State Description'] != 'MS', np.round(np.where(np.isinf(df['Temp_Price'] / df['Temp_Unit']), 0, df['Temp_Price'] / df['Temp_Unit']), 2), 0)
+df["Quantity"] = merge2['Qty'] * merge2['UNIT']
 
 # In Progress
 df['Manufacturer'] = merge2['BRAND'].map(constants.MANUFACTURERS).fillna('N/A')  # TODO - create map for manufacturers to brands
 df["Manufacturer EIN"] = "N/A"  # TODO - create map for manufacturer EINs to manufacturers
 
-
-# Complete
-df["Brand Family"] = merge2['BRAND']
-df["Unit"] = merge2['UNIT']
-df["Unit Description"] = merge2['UNIT DESCRIPTION']
-
-# In Progress
-df["Weight/Volume"] = np.where(df['State Description'] == 'MS', '1', '')
-df["Value"] = np.where(df['State Description'] != 'MS', np.round(np.where(np.isinf(df['Temp_Price'] / df['Temp_Unit']), 0, df['Temp_Price'] / df['Temp_Unit']), 2), 0)
-df["Quantity"] = merge2['Qty'] * merge2['UNIT']
-
-#
-
+# Post Process
 filtered_df = df[(df['Unit'] != 0)].sort_values(by='Product Description')
 filtered_df['Unit'] = 1
-print(f'Filtered: {filtered_df.shape}')
-print(filtered_df[[
-    'Name',
-    'Product Description',
-    'Manufacturer',
-    'Manufacturer EIN',
-    'Unit',
-    'Weight/Volume',
-    'Value',
-    'Quantity',
-    'Temp_Price',
-    'Temp_Unit',
-    'Fed Description',
-    'State Description',
-]].head(7))
-
 filtered_df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
+
+
+# Convert Data to Excel Sheet
 filtered_df.to_excel('TP_1_IL_Report_V1.xlsx', index=False)
