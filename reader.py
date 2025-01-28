@@ -2,37 +2,48 @@ import constants
 import pandas as pd
 import numpy as np
 from utils.excel_utils import mergeBooks, read_sheet, merge_sheets
+import re
 
 # Make an aggregated book just to make viewing exceleasier during development
 #mergeBooks(constants.INVOICE_DATA_FILE_NAME,constants.CUSTOMER_DATA_FILE_NAME,constants.PRODUCT_DATA_FILE_NAME,constants.INVOICE_SHEET_NAME,constants.CUSTOMER_SHEET_NAME,constants.PRODUCT_SHEET_NAME)
 
 
 # Choose which columns to read out of the quickbooks generated excel report
-invoice_columns_to_use = "Date Num Memo Name Qty Amount".split() + ["Sales Price"]
+invoice_columns_to_use = "Date Num Memo Name Qty Amount Item".split() + ["Sales Price"]
 prod_cols_to_use = "Item Description U/M Price UPC FED_DESCRIPTION BRAND UNIT".split() + ["UNIT DESCRIPTION"]
 cust_cols_to_use = "Customer FEIN LICENSE".split() + ["Bill to 1", "Bill to 2", "Sales Tax Code", "Customer Type"]
+
 
 # Read The Excel Report into Pandas DataFrames
 inv = read_sheet(constants.INVOICE_DATA_FILE_NAME, constants.INVOICE_SHEET_NAME, invoice_columns_to_use)
 cust = read_sheet(constants.CUSTOMER_DATA_FILE_NAME, constants.CUSTOMER_SHEET_NAME, cust_cols_to_use)
 prod = read_sheet(constants.PRODUCT_DATA_FILE_NAME, constants.PRODUCT_SHEET_NAME, prod_cols_to_use)
 
+
 # Prepare DF's for merge
+inv['Item'] = inv['Item'].str.replace(r'\(.*\)', '', regex=True).str.strip()
 inv.rename(columns={'Name' : 'Customer'}, inplace=True)  # Match Invoice DF Customer's Name column header to Customer DF Customer's Name column header to merge on that column
-inv.rename(columns={'Memo' : 'Description'}, inplace=True)  # Match Invoice DF Item's Name column header to Products DF Item's Name column header to merge on that column
 inv.dropna(subset=['Num'], inplace=True)  # Get rid of all rows of invoices where num is na because invoices will be the correct length of the final df
 
-# Process The Data
-merge1 = pd.merge(inv, prod, on='Description')
-merge2 = pd.merge(merge1, cust, on='Customer')
+prod['UNIT'] = prod['UNIT'].apply(lambda x: int(re.sub(r'\D', '', str(x))) if pd.notna(x) and re.sub(r'\D', '', str(x)) else 0)
 
+# Merge the DF's
+print(f'Inv: {inv.shape}')
+
+merge1 = pd.merge(inv, prod, on='Item')
+print(f'Merge1: {merge1.shape}')
+
+merge2 = pd.merge(merge1, cust, on='Customer')
+print(f'Merge2: {merge2.shape}')
+
+
+# Process The Data
 merge2['FED_DESCRIPTION'] = merge2['FED_DESCRIPTION'].fillna('')
 merge2['BRAND'] = merge2['BRAND'].fillna('')
-
-#print(f"Columns: {merge2.columns}")
+merge2['UNIT'] =  merge2['UNIT'].fillna(0)
 
 condition2 = merge2['BRAND'].apply(
-    lambda x: any(brand in x for brand in constants.MS_BRANDS) if isinstance(x, str) else False
+    lambda x: any(brand.lower() in x.lower() for brand in constants.MS_BRANDS) if isinstance(x, str) else False
 )
 conditions = [
     merge2['FED_DESCRIPTION'].isin(['E-liquid Product', 'Vapor Products']),
@@ -40,8 +51,10 @@ conditions = [
 ]
 choices = ['ECIG', 'MS']
 
+
 # Build th New DataFrame
 df = pd.DataFrame(columns=constants.TP_1_IL_STRUCTURE)
+
 
 # Populate the New DataFrame
 df["Schedule Code"] = merge2['Customer Type'].map(constants.SCHEDULE_CODES)
@@ -71,36 +84,25 @@ df["Temp_Price"] = merge2["Price"]
 df["Temp_Unit"] = merge2["UNIT"]
 
 # In Progress
-df['Manufacturer'] = merge2['BRAND'].map(constants.MANUFACTURERS).fillna('Unknown Manufacturer')
-df["Manufacturer EIN"] = "TBD"
-df["Brand Family"] = merge2['BRAND']
+df['Manufacturer'] = merge2['BRAND'].map(constants.MANUFACTURERS).fillna('N/A')  # TODO - create map for manufacturers to brands
+df["Manufacturer EIN"] = "N/A"  # TODO - create map for manufacturer EINs to manufacturers
+
 
 # Complete
-df["Unit"] = merge2["UNIT"]
+df["Brand Family"] = merge2['BRAND']
+df["Unit"] = merge2['UNIT']
 df["Unit Description"] = merge2['UNIT DESCRIPTION']
 
 # In Progress
-df["Weight/Volume"] = np.where(df['State Description'] == 'MS', merge2['UNIT'], np.nan)
-df["Value"] = np.where(df['State Description'] != 'MS', merge2['Price'] / merge2['UNIT'], np.nan) 
-df["Quantity"] = merge2['Qty']
+df["Weight/Volume"] = np.where(df['State Description'] == 'MS', '1', '')
+df["Value"] = np.where(df['State Description'] != 'MS', np.round(np.where(np.isinf(df['Temp_Price'] / df['Temp_Unit']), 0, df['Temp_Price'] / df['Temp_Unit']), 2), 0)
+df["Quantity"] = merge2['Qty'] * merge2['UNIT']
 
-#df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
+#
 
-# print(df[["Weight/Volume",
-#           "Value",
-#           "Quantity",
-#           "Manufacturer",
-#           "Manufacturer EIN",
-#           "Unit",
-#           "Unit Description",
-#           'Brand Family',
-#           'UPC Number',
-#           'State Description',
-#           'Document Number',
-#           'Weight/Volume',
-#          ]
-#         ].head(10))
-filtered_df = df[(df['Unit'].notna()) & (df['Customer FEIN'].notna()) & (df['City'].notna()) & (df['Customer ID'].notna()) & (df['Document Number'] == 6066)]
+filtered_df = df[(df['Unit'] != 0)].sort_values(by='Product Description')
+filtered_df['Unit'] = 1
+print(f'Filtered: {filtered_df.shape}')
 print(filtered_df[[
     'Name',
     'Product Description',
@@ -110,6 +112,11 @@ print(filtered_df[[
     'Weight/Volume',
     'Value',
     'Quantity',
-    'Temp_Price'
-]].head(50))
-#df.to_excel('test_doc.xlsx', index=False)
+    'Temp_Price',
+    'Temp_Unit',
+    'Fed Description',
+    'State Description',
+]].head(7))
+
+filtered_df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
+filtered_df.to_excel('TP_1_IL_Report_V1.xlsx', index=False)
