@@ -86,11 +86,11 @@ df["Value"] = np.where(df['State Description'] != 'MS', np.round(np.where(np.isi
 df["Quantity"] = merge2['Qty'] * merge2['UNIT']
 
 # In Progress
-df['Manufacturer'] = merge2['BRAND'].map(constants.MANUFACTURERS).fillna('N/A')  # TODO - create map for manufacturers to brands
+df['Manufacturer'] = merge2['BRAND'].apply(lambda x: constants.MANUFACTURERS.get(x, 'N/A'))
 df["Manufacturer EIN"] = "N/A"  # TODO - create map for manufacturer EINs to manufacturers
 
 # Post Process
-filtered_df = df[(df['Unit'] != 0)].sort_values(by='Product Description')
+filtered_df = df[(df['Unit'] != 0)].sort_values(by='Document Number')
 filtered_df['Unit'] = 1
 filtered_df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
 
