@@ -6,8 +6,8 @@ import re
 
 # Choose which columns to read out of the quickbooks generated excel report
 invoice_columns_to_use = "Date Num Memo Name Qty Amount Item".split() + ["Sales Price"]
-prod_cols_to_use = "Item Description U/M Price UPC FED_DESCRIPTION BRAND UNIT".split() + ["UNIT DESCRIPTION"]
-cust_cols_to_use = ["Customer", "FEIN", "LICENSE", "Bill to 1", "Bill to 2", "Sales Tax Code", "Customer Type"]
+prod_cols_to_use = "Item Description U/M Price UPC FED_DESCRIPTION BRAND UNIT".split() + ["UNIT DESCRIPTION", "Sales Tax Code",]
+cust_cols_to_use = ["Customer", "FEIN", "LICENSE", "Bill to 1", "Bill to 2", "Customer Type"]
 
 
 # Read The Excel Report into Pandas DataFrames
@@ -23,11 +23,12 @@ inv.rename(columns={'Name' : 'Customer'}, inplace=True)  # Match Invoice DF Cust
 inv.dropna(subset=['Num'], inplace=True)  # Get rid of all rows of invoices where num is na because invoices will be the correct length of the final df
 
 prod['UNIT'] = prod['UNIT'].apply(lambda x: int(re.sub(r'\D', '', str(x))) if pd.notna(x) and re.sub(r'\D', '', str(x)) else 0)
+prod_filtered = prod[prod['Sales Tax Code'] == 'Tax']
 
 # Merge the DF's
 print(f'Inv: {inv.shape}')
 
-merge1 = pd.merge(inv, prod, on='Item')
+merge1 = pd.merge(inv, prod_filtered, on='Item')
 print(f'Merge1: {merge1.shape}')
 
 merge2 = pd.merge(merge1, cust, on='Customer')
@@ -54,7 +55,7 @@ df = pd.DataFrame(columns=constants.TP_1_IL_STRUCTURE)
 
 
 # Temporary Series
-df["Temp_Price"] = merge2["Price"]
+df["Temp_Price"] = merge2["Sales Price"]
 df["Temp_Unit"] = merge2["UNIT"]
 
 # Populate the New DataFrame
@@ -82,9 +83,9 @@ df["Product Description"] = merge2['Description']
 df["Brand Family"] = merge2['BRAND']
 df["Unit"] = merge2['UNIT']
 df["Unit Description"] = merge2['UNIT DESCRIPTION']
-df["Weight/Volume"] = np.where(df['State Description'] == 'MS', '1', '')
-df["Value"] = np.where(df['State Description'] != 'MS', np.round(np.where(np.isinf(df['Temp_Price'] / df['Temp_Unit']), 0, df['Temp_Price'] / df['Temp_Unit']), 2), 0)
-df["Quantity"] = merge2['Qty'] * merge2['UNIT']
+df["Weight/Volume"] = np.where(df['State Description'] == 'IL-MS', '1', '')
+df["Value"] = np.where(df['State Description'] != 'IL-MS', df['Temp_Price'], 0)
+df["Quantity"] = merge2['Qty']
 
 # In Progress
 df['Manufacturer'] = merge2['BRAND'].apply(lambda x: constants.MANUFACTURERS.get(x, 'N/A'))
