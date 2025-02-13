@@ -6,8 +6,8 @@ import re
 
 # Choose which columns to read out of the quickbooks generated excel report
 invoice_columns_to_use = "Date Num Memo Name Qty Amount Item".split() + ["Sales Price"]
-prod_cols_to_use = "Item Description U/M Price UPC FED_DESCRIPTION BRAND UNIT".split() + ["UNIT DESCRIPTION", "Sales Tax Code",]
-cust_cols_to_use = ["Customer", "FEIN", "LICENSE", "Bill to 1", "Bill to 2", "Customer Type"]
+prod_cols_to_use = "Item Description U/M Price UPC FED_DESCRIPTION BRAND UNIT".split() + ["UNIT DESCRIPTION"]
+cust_cols_to_use = ["Customer", "FEIN", "LICENSE", "Bill to 1", "Bill to 2", "Customer Type", "Sales Tax Code"]
 
 
 # Read The Excel Report into Pandas DataFrames
@@ -81,7 +81,7 @@ df["Fed Description"] = merge2['FED_DESCRIPTION']
 df["State Description"] = np.select(conditions, choices, default='IL-OTP')
 df["MSA Status"] = constants.MSA_STATUS
 df["Price"] = ""
-df["Tax Jurisdiction"] = merge2['Sales Tax Code']
+df["Tax Jurisdiction"] = merge2['Sales Tax Code'].replace("Tax", "IL")
 df["UPC Number"] = merge2['UPC']
 df["UPCs Unit of Measure"] = merge2['U/M'].apply(lambda x: re.search(r'\((.*?)\)', str(x)).group(1) if pd.notna(x) and re.search(r'\((.*?)\)', str(x)) else 'BOX')
 df["Product Description"] = merge2['Description']
@@ -104,7 +104,8 @@ filtered_df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
 print(f'Final: {filtered_df.shape}')
 
 # Convert Data to Excel Sheet
-filtered_df.to_excel('TP_1_IL_Report_V1.xlsx', index=False)
+filtered_df.to_excel('TP_1_IL_Report.xlsx', index=False)
+filtered_df.to_csv("TP_1_IL_Report.csv", index=False, header=False)
 
 # Find missing invoices after merge1 (missing Items)
 missing_after_merge1 = inv[~inv['Item'].isin(prod['Item'])]
