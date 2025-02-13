@@ -20,10 +20,15 @@ print(f'Inv Initial: {inv.shape}')
 # Prepare DF's for merge
 inv['Item'] = inv['Item'].str.replace(r'\(.*\)', '', regex=True).str.strip()
 inv.rename(columns={'Name' : 'Customer'}, inplace=True)  # Match Invoice DF Customer's Name column header to Customer DF Customer's Name column header to merge on that column
+
+# Find rows where 'Num' is NaN before dropping them
+missing_due_to_invoice_filter = inv[inv['Num'].isna()]
+missing_due_to_invoice_filter.to_excel("missing_due_to_invoice_filter.xlsx", index=False)
+
 inv.dropna(subset=['Num'], inplace=True)  # Get rid of all rows of invoices where num is na because invoices will be the correct length of the final df
 
 prod['UNIT'] = prod['UNIT'].apply(lambda x: int(re.sub(r'\D', '', str(x))) if pd.notna(x) and re.sub(r'\D', '', str(x)) else 0)
-prod_filtered = prod[prod['Sales Tax Code'] == 'Tax']
+prod_filtered = prod  # prod[prod['Sales Tax Code'] == 'Tax']
 
 # Merge the DF's
 print(f'Inv: {inv.shape}')
@@ -113,6 +118,7 @@ missing_after_merge2.to_excel("missing_after_merge2.xlsx", index=False)
 missing_after_filtering = merge2[merge2["UNIT"] == 0]
 missing_after_filtering.to_excel("missing_after_filtering.xlsx", index=False)
 
+print(f"Missing due to invoice filter: {missing_due_to_invoice_filter.shape[0]}")
 print(f"Missing after first merge: {missing_after_merge1.shape[0]}")
 print(f"Missing after second merge: {missing_after_merge2.shape[0]}")
 print(f"Missing after filtering: {missing_after_filtering.shape[0]}")
