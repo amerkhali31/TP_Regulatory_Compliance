@@ -7,3 +7,4 @@ __pycache__/
 *.csv
 Customers/
 test_data/
+privateConstants.py

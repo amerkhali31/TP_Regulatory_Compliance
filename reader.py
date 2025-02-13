@@ -1,8 +1,10 @@
 import constants
+import privateConstants
 import pandas as pd
 import numpy as np
 from utils.excel_utils import mergeBooks, read_sheet, merge_sheets
 import re
+import os
 
 # Choose which columns to read out of the quickbooks generated excel report
 invoice_columns_to_use = "Date Num Memo Name Qty Amount Item".split() + ["Sales Price"]
@@ -11,19 +13,15 @@ cust_cols_to_use = ["Customer", "FEIN", "LICENSE", "Bill to 1", "Bill to 2", "Cu
 
 
 # Read The Excel Report into Pandas DataFrames
-inv = read_sheet(constants.INVOICE_DATA_FILE_NAME, constants.INVOICE_SHEET_NAME, invoice_columns_to_use)
-cust = read_sheet(constants.CUSTOMER_DATA_FILE_NAME, constants.CUSTOMER_SHEET_NAME, cust_cols_to_use)
-prod = read_sheet(constants.PRODUCT_DATA_FILE_NAME, constants.PRODUCT_SHEET_NAME, prod_cols_to_use)
+inv = read_sheet(privateConstants.INVOICE_DATA_FILE_NAME, privateConstants.INVOICE_SHEET_NAME, invoice_columns_to_use)
+cust = read_sheet(privateConstants.CUSTOMER_DATA_FILE_NAME, privateConstants.CUSTOMER_SHEET_NAME, cust_cols_to_use)
+prod = read_sheet(privateConstants.PRODUCT_DATA_FILE_NAME, privateConstants.PRODUCT_SHEET_NAME, prod_cols_to_use)
 
 print(f'Inv Initial: {inv.shape}')
 
 # Prepare DF's for merge
 inv['Item'] = inv['Item'].str.replace(r'\(.*\)', '', regex=True).str.strip()
 inv.rename(columns={'Name' : 'Customer'}, inplace=True)  # Match Invoice DF Customer's Name column header to Customer DF Customer's Name column header to merge on that column
-
-# Find rows where 'Num' is NaN before dropping them
-missing_due_to_invoice_filter = inv[inv['Num'].isna()]
-missing_due_to_invoice_filter.to_excel("missing_due_to_invoice_filter.xlsx", index=False)
 
 inv.dropna(subset=['Num'], inplace=True)  # Get rid of all rows of invoices where num is na because invoices will be the correct length of the final df
 
@@ -104,20 +102,32 @@ filtered_df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
 print(f'Final: {filtered_df.shape}')
 
 # Convert Data to Excel Sheet
-filtered_df.to_excel('TP_1_IL_Report.xlsx', index=False)
-filtered_df.to_csv("TP_1_IL_Report.csv", index=False, header=False)
+output_path_report_excel = os.path.join(privateConstants.WRITE_PATH, "TP_1_IL_Report.xlsx")
+output_path_report_csv = os.path.join(privateConstants.WRITE_PATH, "TP_1_IL_Report.csv")
+
+filtered_df.to_excel(output_path_report_excel, index=False)
+filtered_df.to_csv(output_path_report_csv, index=False, header=False)
+
+# Find rows where 'Num' is NaN before dropping them
+output_path_report_inv = os.path.join(privateConstants.WRITE_PATH, "missing_due_to_invoice_filter.xlsx")
+missing_due_to_invoice_filter = inv[inv['Num'].isna()]
+missing_due_to_invoice_filter.to_excel(output_path_report_inv, index=False)
+
 
 # Find missing invoices after merge1 (missing Items)
+output_path_report_merge1 = os.path.join(privateConstants.WRITE_PATH, "missing_after_merge1.xlsx")
 missing_after_merge1 = inv[~inv['Item'].isin(prod['Item'])]
-missing_after_merge1.to_excel("missing_after_merge1.xlsx", index=False)
+missing_after_merge1.to_excel(output_path_report_merge1, index=False)
 
 # Find missing invoices after merge2 (missing Customers)
+output_path_report_merge2 = os.path.join(privateConstants.WRITE_PATH, "missing_after_merge2.xlsx")
 missing_after_merge2 = merge1[~merge1['Customer'].isin(cust['Customer'])]
-missing_after_merge2.to_excel("missing_after_merge2.xlsx", index=False)
+missing_after_merge2.to_excel(output_path_report_merge2, index=False)
 
 # Find missing invoices after filtering (Unit == 0)
+output_path_report_final = os.path.join(privateConstants.WRITE_PATH, "missing_after_filtering.xlsx")
 missing_after_filtering = merge2[merge2["UNIT"] == 0]
-missing_after_filtering.to_excel("missing_after_filtering.xlsx", index=False)
+missing_after_filtering.to_excel(output_path_report_final, index=False)
 
 print(f"Missing due to invoice filter: {missing_due_to_invoice_filter.shape[0]}")
 print(f"Missing after first merge: {missing_after_merge1.shape[0]}")
