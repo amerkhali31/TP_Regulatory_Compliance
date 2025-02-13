@@ -11,7 +11,6 @@ invoice_columns_to_use = "Date Num Memo Name Qty Amount Item".split() + ["Sales 
 prod_cols_to_use = "Item Description U/M Price UPC FED_DESCRIPTION BRAND UNIT".split() + ["UNIT DESCRIPTION"]
 cust_cols_to_use = ["Customer", "FEIN", "LICENSE", "Bill to 1", "Bill to 2", "Customer Type", "Sales Tax Code"]
 
-
 # Read The Excel Report into Pandas DataFrames
 inv = read_sheet(privateConstants.INVOICE_DATA_FILE_NAME, privateConstants.INVOICE_SHEET_NAME, invoice_columns_to_use)
 cust = read_sheet(privateConstants.CUSTOMER_DATA_FILE_NAME, privateConstants.CUSTOMER_SHEET_NAME, cust_cols_to_use)
@@ -37,25 +36,18 @@ print(f'Merge1: {merge1.shape}')
 merge2 = pd.merge(merge1, cust, on='Customer')
 print(f'Merge2: {merge2.shape}')
 
-
 # Process The Data
 merge2['FED_DESCRIPTION'] = merge2['FED_DESCRIPTION'].fillna('')
 merge2['BRAND'] = merge2['BRAND'].fillna('')
 merge2['UNIT'] =  merge2['UNIT'].fillna(0)
 merge2['FED_DESCRIPTION'] = merge2['FED_DESCRIPTION'].replace({'VAPOR': 'VAPOR PRODUCT'}).str.strip()
 
-condition2 = merge2['BRAND'].apply(
-    lambda x: any(brand.lower() in x.lower() for brand in constants.MS_BRANDS) if isinstance(x, str) else False
-)
-conditions = [
-    merge2['FED_DESCRIPTION'].isin(['E-liquid Product', 'VAPOR PRODUCT']),
-    condition2
-]
+condition2 = merge2['BRAND'].apply(lambda x: any(brand.lower() in x.lower() for brand in constants.MS_BRANDS) if isinstance(x, str) else False)
+conditions = [ merge2['FED_DESCRIPTION'].isin(['E-liquid Product', 'VAPOR PRODUCT']), condition2]
 choices = ['IL-ECIG', 'IL-MS']
 
 # Build th New DataFrame
 df = pd.DataFrame(columns=constants.TP_1_IL_STRUCTURE)
-
 
 # Temporary Series
 df["Temp_Price"] = merge2["Sales Price"]
@@ -112,7 +104,6 @@ filtered_df.to_csv(output_path_report_csv, index=False, header=False)
 output_path_report_inv = os.path.join(privateConstants.WRITE_PATH, "missing_due_to_invoice_filter.xlsx")
 missing_due_to_invoice_filter = inv[inv['Num'].isna()]
 missing_due_to_invoice_filter.to_excel(output_path_report_inv, index=False)
-
 
 # Find missing invoices after merge1 (missing Items)
 output_path_report_merge1 = os.path.join(privateConstants.WRITE_PATH, "missing_after_merge1.xlsx")
