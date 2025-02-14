@@ -64,7 +64,7 @@ df["Street Address"] = merge2['Bill to 1']
 df["City"] = merge2['Bill to 2'].apply(lambda x: x.split(',')[0] if isinstance(x, str) and ',' in x else None)
 df["State"] = merge2['Bill to 2'].apply(lambda x: x.split(',')[1].strip().split(' ')[0] if isinstance(x, str) and ',' in x else None)
 df["Country"] = constants.COUNTRY
-df["Zip"] = merge2['Bill to 2'].apply(lambda x: x.split(',')[1].strip().split(' ')[1] if isinstance(x, str) and ',' in x and len(x.split(',')) > 1 and len(x.split(',')[1].strip().split(' ')) > 1 else None)
+df["Zip"] = merge2['Bill to 2'].apply(lambda x: re.search(r'\b\d{5}\b', x).group(0) if isinstance(x, str) and re.search(r'\b\d{5}\b', x) else None)
 df["Customer FEIN"] = merge2['FEIN'].apply(lambda x: re.sub(r'[^0-9]', '', str(x)) if pd.notna(x) and str(x).strip() else '999999999')
 df["Customer ID"] = merge2['LICENSE'].apply(lambda x: re.sub(r'[^a-zA-Z0-9]', '', str(x)) if pd.notna(x) and str(x).strip() else 'CT99999')
 df["Fed Description"] = merge2['FED_DESCRIPTION']
@@ -72,7 +72,9 @@ df["State Description"] = np.select(conditions, choices, default='IL-OTP')
 df["MSA Status"] = constants.MSA_STATUS
 df["Price"] = ""
 df["Tax Jurisdiction"] = merge2['Sales Tax Code'].replace("Tax", "IL")
-df["UPC Number"] = merge2['UPC']
+#df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: f'="{x}"' if x and x != "nan" and x != "None" else "")
+df["UPC Number"] = merge2['UPC'].astype(str).str.replace(" ", "")
+#df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: f"'{x}" if x and x != "nan" and x != "None" else "")
 df["UPCs Unit of Measure"] = merge2['U/M'].apply(lambda x: re.search(r'\((.*?)\)', str(x)).group(1) if pd.notna(x) and re.search(r'\((.*?)\)', str(x)) else 'BOX')
 df["Product Description"] = merge2['Description']
 df["Brand Family"] = merge2['BRAND']
@@ -85,6 +87,9 @@ df["Quantity"] = merge2['Qty']
 # In Progress
 df['Manufacturer'] = merge2['BRAND'].apply(lambda x: constants.MANUFACTURERS.get(x, 'N/A'))
 df["Manufacturer EIN"] = "999999999"  # TODO - create map for manufacturer EINs to manufacturers
+df["UPC Length"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(
+    lambda x: len(x) if x and x != "nan" and x != "None" else 0
+)
 
 # Post Process
 filtered_df = df[(df['Unit'] != 0)].sort_values(by='Document Number')
@@ -94,11 +99,10 @@ filtered_df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
 print(f'Final: {filtered_df.shape}')
 
 # Convert Data to Excel Sheet
-output_path_report_excel = os.path.join(privateConstants.WRITE_PATH, "TP_1_IL_Report.xlsx")
-output_path_report_csv = os.path.join(privateConstants.WRITE_PATH, "TP_1_IL_Report.csv")
+output_path_report_excel = os.path.join(privateConstants.WRITE_PATH, "TP_1_IL_Report_January_2025_Dream.xlsx")
 
 filtered_df.to_excel(output_path_report_excel, index=False)
-filtered_df.to_csv(output_path_report_csv, index=False, header=False)
+#filtered_df.to_csv(output_path_report_csv, index=False, header=False)
 
 # Find rows where 'Num' is NaN before dropping them
 output_path_report_inv = os.path.join(privateConstants.WRITE_PATH, "missing_due_to_invoice_filter.xlsx")
