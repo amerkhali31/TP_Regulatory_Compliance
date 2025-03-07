@@ -60,7 +60,7 @@ df["Document Type"] = constants.DOCUMENT_TYPE
 df["Document Number"] = merge2['Num']
 df["Type of Customer"] = merge2['Customer Type'].replace({'Retail': 'Retailer'})
 df["Name"] = merge2['Customer']
-df["Street Address"] = merge2['Bill to 1']
+df["Street Address"] = merge2["Bill to 1"].str.replace(r"[^a-zA-Z0-9\s]", "", regex=True).str[:49]
 df["City"] = merge2['Bill to 2'].apply(lambda x: x.split(',')[0] if isinstance(x, str) and ',' in x else None)
 df["State"] = merge2['Bill to 2'].apply(lambda x: x.split(',')[1].strip().split(' ')[0] if isinstance(x, str) and ',' in x else None)
 df["Country"] = constants.COUNTRY
@@ -73,10 +73,10 @@ df["MSA Status"] = constants.MSA_STATUS
 df["Price"] = ""
 df["Tax Jurisdiction"] = merge2['Sales Tax Code'].replace("Tax", "IL")
 #df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: f'="{x}"' if x and x != "nan" and x != "None" else "")
-df["UPC Number"] = merge2['UPC'].astype(str).str.replace(" ", "")
+df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: x.lstrip("0") + "0" * (len(x) - len(x.lstrip("0"))) if x.lstrip("0") else "0")
 #df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: f"'{x}" if x and x != "nan" and x != "None" else "")
 df["UPCs Unit of Measure"] = merge2['U/M'].apply(lambda x: re.search(r'\((.*?)\)', str(x)).group(1) if pd.notna(x) and re.search(r'\((.*?)\)', str(x)) else 'BOX')
-df["Product Description"] = merge2['Description']
+df["Product Description"] = merge2['Description'].str.replace(r"[^a-zA-Z0-9\s]", "", regex=True).str[:49]
 df["Brand Family"] = merge2['BRAND']
 df["Unit"] = merge2['UNIT']
 df["Unit Description"] = merge2['UNIT DESCRIPTION']
@@ -87,9 +87,6 @@ df["Quantity"] = merge2['Qty']
 # In Progress
 df['Manufacturer'] = merge2['BRAND'].apply(lambda x: constants.MANUFACTURERS.get(x, 'N/A'))
 df["Manufacturer EIN"] = "999999999"  # TODO - create map for manufacturer EINs to manufacturers
-df["UPC Length"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(
-    lambda x: len(x) if x and x != "nan" and x != "None" else 0
-)
 
 # Post Process
 filtered_df = df[(df['Unit'] != 0)].sort_values(by='Document Number')
