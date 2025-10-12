@@ -22,7 +22,7 @@ print(f'Inv Initial: {inv.shape}')
 inv['Item'] = inv['Item'].str.replace(r'\(.*\)', '', regex=True).str.strip()
 inv.rename(columns={'Name' : 'Customer'}, inplace=True)  # Match Invoice DF Customer's Name column header to Customer DF Customer's Name column header to merge on that column
 
-inv.dropna(subset=['Num'], inplace=True)  # Get rid of all rows of invoices where num is na because invoices will be the correct length of the final df
+inv.dropna(subset=['Num'], inplace=True)  # Get rid of all rows of invoices where num is na because invoices will be the correct length of the final df. basically ignore rows that just show name of customer and not purchases
 
 prod['UNIT'] = prod['UNIT'].apply(lambda x: int(re.sub(r'\D', '', str(x))) if pd.notna(x) and re.sub(r'\D', '', str(x)) else 0)
 prod_filtered = prod  # prod[prod['Sales Tax Code'] == 'Tax']
@@ -87,7 +87,9 @@ df["Quantity"] = merge2['Qty']
 # In Progress
 df['Manufacturer'] = merge2['BRAND'].apply(lambda x: constants.MANUFACTURERS.get(x, 'N/A'))
 df["Manufacturer EIN"] = "999999999"  # TODO - create map for manufacturer EINs to manufacturers
-
+df["UPC Length"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(
+    lambda x: len(x) if x and x != "nan" and x != "None" else 0
+)
 # Post Process
 filtered_df = df[(df['Unit'] != 0)].sort_values(by='Document Number')
 filtered_df['Unit'] = 1
@@ -96,7 +98,7 @@ filtered_df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
 print(f'Final: {filtered_df.shape}')
 
 # Convert Data to Excel Sheet
-output_path_report_excel = os.path.join(privateConstants.WRITE_PATH, "TP_1_IL_Report_January_2025_Dream.xlsx")
+output_path_report_excel = os.path.join(privateConstants.WRITE_PATH, privateConstants.REPORT_NAME)
 
 filtered_df.to_excel(output_path_report_excel, index=False)
 #filtered_df.to_csv(output_path_report_csv, index=False, header=False)
