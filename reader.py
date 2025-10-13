@@ -2,39 +2,44 @@ import constants
 import privateConstants
 import pandas as pd
 import numpy as np
-from utils.excel_utils import mergeBooks, read_sheet, merge_sheets
+from utils.excel_utils import mergeBooks, read_sheet, merge_sheets, extract_liability, autoresize_and_filter
 import re
 import os
 
 # Choose which columns to read out of the quickbooks generated excel report
 invoice_columns_to_use = "Date Num Memo Name Qty Amount Item".split() + ["Sales Price"]
-prod_cols_to_use = "Item Description U/M Price UPC FED_DESCRIPTION BRAND UNIT".split() + ["UNIT DESCRIPTION"]
+prod_cols_to_use = "Item Description U/M Price UPC FED_DESCRIPTION BRAND UNIT".split() + ["UNIT DESCRIPTION", "Sales Tax Code"]
 cust_cols_to_use = ["Customer", "FEIN", "LICENSE", "Bill to 1", "Bill to 2", "Customer Type", "Sales Tax Code"]
 
 # Read The Excel Report into Pandas DataFrames
 inv = read_sheet(privateConstants.INVOICE_DATA_FILE_NAME, privateConstants.INVOICE_SHEET_NAME, invoice_columns_to_use)
 cust = read_sheet(privateConstants.CUSTOMER_DATA_FILE_NAME, privateConstants.CUSTOMER_SHEET_NAME, cust_cols_to_use)
 prod = read_sheet(privateConstants.PRODUCT_DATA_FILE_NAME, privateConstants.PRODUCT_SHEET_NAME, prod_cols_to_use)
+tax_liability = extract_liability(privateConstants.LIABILITY_FILE_NAME,privateConstants.LIABILITY_SHEET_NAME,privateConstants.LIABILTY_VALUE_CELL)
 
-print(f'Inv Initial: {inv.shape}')
+# print("cust columns:", cust.columns.tolist())
+# print("prod columns:", prod.columns.tolist())
+# print("invc columns:", inv.columns.tolist())
+
+print(f'\n{'Invoices Raw Excel Rows ':-<40} {inv.shape}')
 
 # Prepare DF's for merge
 inv['Item'] = inv['Item'].str.replace(r'\(.*\)', '', regex=True).str.strip()
 inv.rename(columns={'Name' : 'Customer'}, inplace=True)  # Match Invoice DF Customer's Name column header to Customer DF Customer's Name column header to merge on that column
-
 inv.dropna(subset=['Num'], inplace=True)  # Get rid of all rows of invoices where num is na because invoices will be the correct length of the final df. basically ignore rows that just show name of customer and not purchases
 
+prod.rename(columns={'Sales Tax Code' : 'Taxable Status'}, inplace=True)
 prod['UNIT'] = prod['UNIT'].apply(lambda x: int(re.sub(r'\D', '', str(x))) if pd.notna(x) and re.sub(r'\D', '', str(x)) else 0)
 prod_filtered = prod  # prod[prod['Sales Tax Code'] == 'Tax']
 
 # Merge the DF's
-print(f'Inv: {inv.shape}')
+print(f'{'Invoices after removing num na rows ':-<40} {inv.shape}')
 
 merge1 = pd.merge(inv, prod_filtered, on='Item')
-print(f'Merge1: {merge1.shape}')
+print(f'{'Merge1 - invoices/products ':-<40} {merge1.shape}')
 
 merge2 = pd.merge(merge1, cust, on='Customer')
-print(f'Merge2: {merge2.shape}')
+print(f'{'Merge2 - merge1/customer':-<40} {merge2.shape}')
 
 # Process The Data
 merge2['FED_DESCRIPTION'] = merge2['FED_DESCRIPTION'].fillna('')
@@ -84,7 +89,6 @@ df["Weight/Volume"] = np.where(df['State Description'] == 'IL-MS', '1', '')
 df["Value"] = np.where(df['State Description'] != 'IL-MS', df['Temp_Price'], 0)
 df["Quantity"] = merge2['Qty']
 
-# In Progress
 df['Manufacturer'] = merge2['BRAND'].apply(lambda x: constants.MANUFACTURERS.get(x, 'N/A'))
 df["Manufacturer EIN"] = "999999999"  # TODO - create map for manufacturer EINs to manufacturers
 df["UPC Length"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(
@@ -93,9 +97,13 @@ df["UPC Length"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(
 # Post Process
 filtered_df = df[(df['Unit'] != 0)].sort_values(by='Document Number')
 filtered_df['Unit'] = 1
+filtered_df['Total'] = filtered_df['Value'] * filtered_df['Quantity']
+col_sum = filtered_df["Total"].sum()
+diff = col_sum - tax_liability
+
 filtered_df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
 
-print(f'Final: {filtered_df.shape}')
+print(f'{'Final ':-<40} {filtered_df.shape}')
 
 # Convert Data to Excel Sheet
 output_path_report_excel = os.path.join(privateConstants.WRITE_PATH, privateConstants.REPORT_NAME)
@@ -123,7 +131,70 @@ output_path_report_final = os.path.join(privateConstants.WRITE_PATH, "missing_af
 missing_after_filtering = merge2[merge2["UNIT"] == 0]
 missing_after_filtering.to_excel(output_path_report_final, index=False)
 
+
+# ================================
+# 👇 Add "Report" and "Liability" after last column of first row using openpyxl
+# ================================
+from openpyxl import load_workbook
+
+# Load the workbook
+wb = load_workbook(output_path_report_excel)
+ws = wb.active  # or wb["Sheet1"] if you know the name
+
+# Find the last column used
+last_col = ws.max_column
+
+# Write "Report" and "Liability" in first row after last column
+ws.cell(row=1, column=last_col + 1, value="Reporting")
+ws.cell(row=1, column=last_col + 2, value="Liability")
+ws.cell(row=1, column=last_col + 3, value = "Difference")
+
+ws.cell(row=2, column=last_col + 1, value=col_sum)
+ws.cell(row=2, column=last_col + 2, value=tax_liability)
+ws.cell(row=2, column=last_col + 3, value = diff)
+
+# Save workbook
+wb.save(output_path_report_excel)
+
 print(f"Missing due to invoice filter: {missing_due_to_invoice_filter.shape[0]}")
 print(f"Missing after first merge: {missing_after_merge1.shape[0]}")
 print(f"Missing after second merge: {missing_after_merge2.shape[0]}")
 print(f"Missing after filtering: {missing_after_filtering.shape[0]}")
+
+# 👇 Columns to exclude from missing-data check
+exclude_cols = ["Price", "Weight/Volume"]
+
+# 👇 Subset of the DataFrame to actually check
+check_df = filtered_df.drop(columns=exclude_cols, errors="ignore")
+
+# 👇 Build mask for missing or blank values (only on subset)
+missing_rows_mask = (
+    check_df.isna().any(axis=1) |
+    check_df.apply(lambda row: row.astype(str).str.strip().eq("").any(), axis=1)
+)
+
+# 👇 Extract rows from the original DataFrame
+missing_rows = filtered_df[missing_rows_mask]
+
+# Optional: list which columns were missing (excluding the ignored ones)
+def find_missing_columns(row):
+    return ", ".join(
+        col for col in check_df.columns
+        if pd.isna(row[col]) or str(row[col]).strip() == ""
+    )
+
+missing_rows = missing_rows.copy()
+missing_rows["Missing Columns"] = filtered_df.apply(find_missing_columns, axis=1)
+
+# Move "Missing Columns" to the first column
+cols = missing_rows.columns.tolist()
+cols.remove("Missing Columns")  # remove it from its current position
+cols = ["Missing Columns"] + cols  # put it first
+missing_rows = missing_rows[cols]
+
+# 👇 Export
+output_path_missing_data = os.path.join(privateConstants.WRITE_PATH, "rows_with_missing_data.xlsx")
+missing_rows.to_excel(output_path_missing_data, index=False)
+
+autoresize_and_filter(output_path_report_excel,privateConstants.REPORT_SHEET_NAME)
+print(f"Missing data rows exported: {missing_rows.shape[0]} rows\n")
