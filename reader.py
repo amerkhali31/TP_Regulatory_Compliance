@@ -2,7 +2,7 @@ import constants
 import privateConstants
 import pandas as pd
 import numpy as np
-from utils.excel_utils import mergeBooks, read_sheet, merge_sheets, extract_liability, autoresize_and_filter
+from utils.excel_utils import read_sheet, merge_sheets, extract_liability, autoresize_and_filter
 import re
 import os
 
@@ -69,7 +69,7 @@ df["Street Address"] = merge2["Bill to 1"].str.replace(r"[^a-zA-Z0-9\s]", "", re
 df["City"] = merge2['Bill to 2'].apply(lambda x: x.split(',')[0] if isinstance(x, str) and ',' in x else None)
 df["State"] = merge2['Bill to 2'].apply(lambda x: x.split(',')[1].strip().split(' ')[0] if isinstance(x, str) and ',' in x else None)
 df["Country"] = constants.COUNTRY
-df["Zip"] = merge2['Bill to 2'].apply(lambda x: re.search(r'\b\d{5}\b', x).group(0) if isinstance(x, str) and re.search(r'\b\d{5}\b', x) else None)
+df["Zip"] = merge2['Bill to 2'].apply(lambda x: re.search(r'\b\d{5}\b', x).group(0) if isinstance(x, str) and re.search(r'\b\d{5}\b', x) else None) # type: ignore
 df["Customer FEIN"] = merge2['FEIN'].apply(lambda x: re.sub(r'[^0-9]', '', str(x)) if pd.notna(x) and str(x).strip() else '999999999')
 df["Customer ID"] = merge2['LICENSE'].apply(lambda x: re.sub(r'[^a-zA-Z0-9]', '', str(x)) if pd.notna(x) and str(x).strip() else 'CT99999')
 df["Fed Description"] = merge2['FED_DESCRIPTION']
@@ -77,10 +77,15 @@ df["State Description"] = np.select(conditions, choices, default='IL-OTP')
 df["MSA Status"] = constants.MSA_STATUS
 df["Price"] = ""
 df["Tax Jurisdiction"] = merge2['Sales Tax Code'].replace("Tax", "IL")
+
+# TEMP
+df["Product Sales Tax Code"] = merge2["Taxable Status"]
+
+
 #df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: f'="{x}"' if x and x != "nan" and x != "None" else "")
 df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: x.lstrip("0") + "0" * (len(x) - len(x.lstrip("0"))) if x.lstrip("0") else "0")
 #df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: f"'{x}" if x and x != "nan" and x != "None" else "")
-df["UPCs Unit of Measure"] = merge2['U/M'].apply(lambda x: re.search(r'\((.*?)\)', str(x)).group(1) if pd.notna(x) and re.search(r'\((.*?)\)', str(x)) else 'BOX')
+df["UPCs Unit of Measure"] = merge2['U/M'].apply(lambda x: re.search(r'\((.*?)\)', str(x)).group(1) if pd.notna(x) and re.search(r'\((.*?)\)', str(x)) else 'BOX') # type: ignore
 df["Product Description"] = merge2['Description'].str.replace(r"[^a-zA-Z0-9\s]", "", regex=True).str[:49]
 df["Brand Family"] = merge2['BRAND']
 df["Unit"] = merge2['UNIT']
@@ -142,16 +147,16 @@ wb = load_workbook(output_path_report_excel)
 ws = wb.active  # or wb["Sheet1"] if you know the name
 
 # Find the last column used
-last_col = ws.max_column
+last_col = ws.max_column # type: ignore
 
 # Write "Report" and "Liability" in first row after last column
-ws.cell(row=1, column=last_col + 1, value="Reporting")
-ws.cell(row=1, column=last_col + 2, value="Liability")
-ws.cell(row=1, column=last_col + 3, value = "Difference")
+ws.cell(row=1, column=last_col + 1, value="Reporting") # type: ignore
+ws.cell(row=1, column=last_col + 2, value="Liability") # type: ignore
+ws.cell(row=1, column=last_col + 3, value = "Difference") # type: ignore
 
-ws.cell(row=2, column=last_col + 1, value=col_sum)
-ws.cell(row=2, column=last_col + 2, value=tax_liability)
-ws.cell(row=2, column=last_col + 3, value = diff)
+ws.cell(row=2, column=last_col + 1, value=col_sum) # type: ignore
+ws.cell(row=2, column=last_col + 2, value=tax_liability) # type: ignore
+ws.cell(row=2, column=last_col + 3, value = diff) # type: ignore
 
 # Save workbook
 wb.save(output_path_report_excel)
