@@ -2,204 +2,180 @@ import constants
 import privateConstants
 import pandas as pd
 import numpy as np
-from utils.excel_utils import read_sheet, merge_sheets, extract_liability, autoresize_and_filter
+from utils.excel_utils import read_sheet, merge_sheets, autoresize_and_filter
+from utils.address_utils import customer_city_state_zip
 import re
 import os
 
-# Choose which columns to read out of the quickbooks generated excel report
-invoice_columns_to_use = "Date Num Memo Name Qty Amount Item".split() + ["Sales Price"]
-prod_cols_to_use = "Item Description U/M Price UPC FED_DESCRIPTION BRAND UNIT".split() + ["UNIT DESCRIPTION", "Sales Tax Code"]
-cust_cols_to_use = ["Customer", "FEIN", "LICENSE", "Bill to 1", "Bill to 2", "Customer Type", "Sales Tax Code"]
+def do_taxes(read_path: str, write_path: str, month_year: str):
+    # Choose which columns to read out of the quickbooks generated excel report
+    invoice_columns_to_use = "Date Num Memo Name Qty Amount Item".split() + ["Sales Price"]
+    prod_cols_to_use = "Item Description U/M Price UPC FED_DESCRIPTION BRAND UNIT".split() + ["UNIT DESCRIPTION", "Sales Tax Code"]
+    cust_cols_to_use = ["Customer", "FEIN", "LICENSE", "Bill to 1", "Bill to 2", "Customer Type", "Sales Tax Code"]
 
-# Read The Excel Report into Pandas DataFrames
-inv = read_sheet(privateConstants.INVOICE_DATA_FILE_NAME, privateConstants.INVOICE_SHEET_NAME, invoice_columns_to_use)
-cust = read_sheet(privateConstants.CUSTOMER_DATA_FILE_NAME, privateConstants.CUSTOMER_SHEET_NAME, cust_cols_to_use)
-prod = read_sheet(privateConstants.PRODUCT_DATA_FILE_NAME, privateConstants.PRODUCT_SHEET_NAME, prod_cols_to_use)
-tax_liability = extract_liability(privateConstants.LIABILITY_FILE_NAME,privateConstants.LIABILITY_SHEET_NAME,privateConstants.LIABILTY_VALUE_CELL)
+    # Read The Excel Report into Pandas DataFrames
+    inv = read_sheet(f'{read_path}/{month_year}_INVOICES.xlsx', privateConstants.INVOICE_SHEET_NAME, invoice_columns_to_use)
+    # City/State/Zip are dedicated columns in newer customer exports; older exports only have "Bill to 2"
+    cust = read_sheet(f'{read_path}/{month_year}_CUSTOMERS.xlsx', privateConstants.CUSTOMER_SHEET_NAME, cust_cols_to_use, optional_cols=["City", "State", "Zip"])
+    prod = read_sheet(f'{read_path}/{month_year}_PRODUCTS.xlsx', privateConstants.PRODUCT_SHEET_NAME, prod_cols_to_use)
 
-# print("cust columns:", cust.columns.tolist())
-# print("prod columns:", prod.columns.tolist())
-# print("invc columns:", inv.columns.tolist())
+    # print("cust columns:", cust.columns.tolist())
+    # print("prod columns:", prod.columns.tolist())
+    # print("invc columns:", inv.columns.tolist())
 
-print(f'\n{'Invoices Raw Excel Rows ':-<40} {inv.shape}')
+    print(f'\n{'Invoices Raw Excel Rows ':-<40} {inv.shape}')
 
-# Prepare DF's for merge
-inv['Item'] = inv['Item'].str.replace(r'\(.*\)', '', regex=True).str.strip()
-inv.rename(columns={'Name' : 'Customer'}, inplace=True)  # Match Invoice DF Customer's Name column header to Customer DF Customer's Name column header to merge on that column
-inv.dropna(subset=['Num'], inplace=True)  # Get rid of all rows of invoices where num is na because invoices will be the correct length of the final df. basically ignore rows that just show name of customer and not purchases
+    # Prepare DF's for merge
+    inv['Item'] = inv['Item'].str.replace(r'\(.*\)', '', regex=True).str.strip()
+    # Lines that carry an item/amount but no invoice number would be silently dropped below - keep them for review
+    missing_due_to_invoice_filter = inv[inv['Num'].isna() & inv['Item'].notna()]  # subtotal rows have no Item
+    inv.rename(columns={'Name' : 'Customer'}, inplace=True)  # Match Invoice DF Customer's Name column header to Customer DF Customer's Name column header to merge on that column
+    inv.dropna(subset=['Num'], inplace=True)  # Get rid of all rows of invoices where num is na because invoices will be the correct length of the final df. basically ignore rows that just show name of customer and not purchases
 
-prod.rename(columns={'Sales Tax Code' : 'Taxable Status'}, inplace=True)
-prod['UNIT'] = prod['UNIT'].apply(lambda x: int(re.sub(r'\D', '', str(x))) if pd.notna(x) and re.sub(r'\D', '', str(x)) else 0)
-prod_filtered = prod  # prod[prod['Sales Tax Code'] == 'Tax']
+    prod.rename(columns={'Sales Tax Code' : 'Taxable Status'}, inplace=True)
+    prod['UNIT'] = prod['UNIT'].apply(lambda x: int(re.sub(r'\D', '', str(x))) if pd.notna(x) and re.sub(r'\D', '', str(x)) else 0)
+    prod_filtered = prod  # prod[prod['Sales Tax Code'] == 'Tax']
 
-# Merge the DF's
-print(f'{'Invoices after removing num na rows ':-<40} {inv.shape}')
+    # Merge the DF's
+    print(f'{'Invoices after removing num na rows ':-<40} {inv.shape}')
 
-merge1 = pd.merge(inv, prod_filtered, on='Item')
-print(f'{'Merge1 - invoices/products ':-<40} {merge1.shape}')
+    merge1 = pd.merge(inv, prod_filtered, on='Item')
+    print(f'{'Merge1 - invoices/products ':-<40} {merge1.shape}')
 
-merge2 = pd.merge(merge1, cust, on='Customer')
-print(f'{'Merge2 - merge1/customer':-<40} {merge2.shape}')
+    merge2 = pd.merge(merge1, cust, on='Customer')
+    print(f'{'Merge2 - merge1/customer':-<40} {merge2.shape}')
 
-# Process The Data
-merge2['FED_DESCRIPTION'] = merge2['FED_DESCRIPTION'].fillna('')
-merge2['BRAND'] = merge2['BRAND'].fillna('')
-merge2['UNIT'] =  merge2['UNIT'].fillna(0)
-merge2['FED_DESCRIPTION'] = merge2['FED_DESCRIPTION'].replace({'VAPOR': 'VAPOR PRODUCT'}).str.strip()
+    # Process The Data
+    merge2['FED_DESCRIPTION'] = merge2['FED_DESCRIPTION'].fillna('')
+    merge2['BRAND'] = merge2['BRAND'].fillna('')
+    merge2['UNIT'] =  merge2['UNIT'].fillna(0)
+    merge2['FED_DESCRIPTION'] = merge2['FED_DESCRIPTION'].replace({'VAPOR': 'VAPOR PRODUCT'}).str.strip()
 
-condition2 = merge2['BRAND'].apply(lambda x: any(brand.lower() in x.lower() for brand in constants.MS_BRANDS) if isinstance(x, str) else False)
-conditions = [ merge2['FED_DESCRIPTION'].isin(['E-liquid Product', 'VAPOR PRODUCT']), condition2]
-choices = ['IL-ECIG', 'IL-MS']
+    condition2 = merge2['BRAND'].apply(lambda x: any(brand.lower() in x.lower() for brand in constants.MS_BRANDS) if isinstance(x, str) else False)
+    conditions = [ merge2['FED_DESCRIPTION'].isin(['E-liquid Product', 'VAPOR PRODUCT']), condition2]
+    choices = ['IL-ECIG', 'IL-MS']
 
-# Build th New DataFrame
-df = pd.DataFrame(columns=constants.TP_1_IL_STRUCTURE)
+    # Build th New DataFrame
+    df = pd.DataFrame(columns=constants.TP_1_IL_STRUCTURE)
 
-# Temporary Series
-df["Temp_Price"] = merge2["Sales Price"]
-df["Temp_Unit"] = merge2["UNIT"]
+    # Temporary Series
+    df["Temp_Price"] = merge2["Sales Price"]
+    df["Temp_Unit"] = merge2["UNIT"]
 
-# Populate the New DataFrame
-df["Schedule Code"] = merge2['Customer Type'].map(constants.SCHEDULE_CODES)
-df["Document Date"] = merge2['Date'].dt.strftime('%m-%d-%Y')
-df["Document Type"] = constants.DOCUMENT_TYPE
-df["Document Number"] = merge2['Num']
-df["Type of Customer"] = merge2['Customer Type'].replace({'Retail': 'Retailer'})
-df["Name"] = merge2['Customer']
-df["Street Address"] = merge2["Bill to 1"].str.replace(r"[^a-zA-Z0-9\s]", "", regex=True).str[:49]
-df["City"] = merge2['Bill to 2'].apply(lambda x: x.split(',')[0] if isinstance(x, str) and ',' in x else None)
-df["State"] = merge2['Bill to 2'].apply(lambda x: x.split(',')[1].strip().split(' ')[0] if isinstance(x, str) and ',' in x else None)
-df["Country"] = constants.COUNTRY
-df["Zip"] = merge2['Bill to 2'].apply(lambda x: re.search(r'\b\d{5}\b', x).group(0) if isinstance(x, str) and re.search(r'\b\d{5}\b', x) else None) # type: ignore
-df["Customer FEIN"] = merge2['FEIN'].apply(lambda x: re.sub(r'[^0-9]', '', str(x)) if pd.notna(x) and str(x).strip() else '999999999')
-df["Customer ID"] = merge2['LICENSE'].apply(lambda x: re.sub(r'[^a-zA-Z0-9]', '', str(x)) if pd.notna(x) and str(x).strip() else 'CT99999')
-df["Fed Description"] = merge2['FED_DESCRIPTION']
-df["State Description"] = np.select(conditions, choices, default='IL-OTP')
-df["MSA Status"] = constants.MSA_STATUS
-df["Price"] = ""
-df["Tax Jurisdiction"] = merge2['Sales Tax Code'].replace("Tax", "IL")
+    # Populate the New DataFrame
+    df["Schedule Code"] = merge2['Customer Type'].map(constants.SCHEDULE_CODES)
+    df["Document Date"] = merge2['Date'].dt.strftime('%m-%d-%Y') # type: ignore
+    df["Document Type"] = constants.DOCUMENT_TYPE
+    df["Document Number"] = merge2['Num']
+    df["Type of Customer"] = merge2['Customer Type'].replace({'Retail': 'Retailer', 'Wholesale': 'Wholesaler'})
+    df["Name"] = merge2['Customer']
+    df["Street Address"] = merge2["Bill to 1"].str.replace(r"[^a-zA-Z0-9\s]", "", regex=True).str[:49]
+    # Prefer the customer export's City/State/Zip columns; fall back to parsing "Bill to 2"
+    # (the old comma-split left these blank whenever "Bill to 2" had no comma, e.g. "CHICAGO IL 60651-2623")
+    city_state_zip = merge2.apply(customer_city_state_zip, axis=1)
+    df["City"] = city_state_zip.str[0].replace('', None)
+    df["State"] = city_state_zip.str[1].replace('', None)
+    df["Country"] = constants.COUNTRY
+    df["Zip"] = city_state_zip.str[2].replace('', None)
+    df["Customer FEIN"] = merge2['FEIN'].apply(lambda x: re.sub(r'[^0-9]', '', str(x)) if pd.notna(x) and str(x).strip() else '999999999')
+    df["Customer ID"] = merge2['LICENSE'].apply(lambda x: re.sub(r'[^a-zA-Z0-9]', '', str(x)) if pd.notna(x) and str(x).strip() else 'CT99999')
+    df["Fed Description"] = merge2['FED_DESCRIPTION']
+    df["State Description"] = np.select(conditions, choices, default='IL-OTP')
+    df["MSA Status"] = constants.MSA_STATUS
+    df["Price"] = ""
+    df["Tax Jurisdiction"] = merge2['Sales Tax Code'].replace("Tax", "IL")
 
-# TEMP
-df["Product Sales Tax Code"] = merge2["Taxable Status"]
+    #df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: f'="{x}"' if x and x != "nan" and x != "None" else "")
+    df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: x.lstrip("0") + "0" * (len(x) - len(x.lstrip("0"))) if x.lstrip("0") else "0")
+    #df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: f"'{x}" if x and x != "nan" and x != "None" else "")
+    df["UPCs Unit of Measure"] = merge2['U/M'].apply(lambda x: re.search(r'\((.*?)\)', str(x)).group(1) if pd.notna(x) and re.search(r'\((.*?)\)', str(x)) else 'BOX') # type: ignore
+    df["Product Description"] = merge2['Description'].str.replace(r"[^a-zA-Z0-9\s]", "", regex=True).str[:49]
+    df["Brand Family"] = merge2['BRAND']
+    df["Unit"] = merge2['UNIT']
+    df["Unit Description"] = merge2['UNIT DESCRIPTION']
+    df["Weight/Volume"] = np.where(df['State Description'] == 'IL-MS', '1', '')
+    df["Value"] = df['Temp_Price']  # np.where(df['State Description'] != 'IL-MS', df['Temp_Price'], 0)
+    df["Quantity"] = merge2['Qty']
 
+    df['Manufacturer'] = merge2['BRAND'].apply(lambda x: constants.MANUFACTURERS.get(x, 'N/A'))
+    df["Manufacturer EIN"] = "999999999"  # TODO - create map for manufacturer EINs to manufacturers
+    # Post Process
+    filtered_df = df[(df['Unit'] != 0)].sort_values(by='Document Number')
+    filtered_df['Unit'] = 1
+    filtered_df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
 
-#df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: f'="{x}"' if x and x != "nan" and x != "None" else "")
-df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: x.lstrip("0") + "0" * (len(x) - len(x.lstrip("0"))) if x.lstrip("0") else "0")
-#df["UPC Number"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(lambda x: f"'{x}" if x and x != "nan" and x != "None" else "")
-df["UPCs Unit of Measure"] = merge2['U/M'].apply(lambda x: re.search(r'\((.*?)\)', str(x)).group(1) if pd.notna(x) and re.search(r'\((.*?)\)', str(x)) else 'BOX') # type: ignore
-df["Product Description"] = merge2['Description'].str.replace(r"[^a-zA-Z0-9\s]", "", regex=True).str[:49]
-df["Brand Family"] = merge2['BRAND']
-df["Unit"] = merge2['UNIT']
-df["Unit Description"] = merge2['UNIT DESCRIPTION']
-df["Weight/Volume"] = np.where(df['State Description'] == 'IL-MS', '1', '')
-df["Value"] = np.where(df['State Description'] != 'IL-MS', df['Temp_Price'], 0)
-df["Quantity"] = merge2['Qty']
+    print(f'{'Final ':-<40} {filtered_df.shape}')
 
-df['Manufacturer'] = merge2['BRAND'].apply(lambda x: constants.MANUFACTURERS.get(x, 'N/A'))
-df["Manufacturer EIN"] = "999999999"  # TODO - create map for manufacturer EINs to manufacturers
-df["UPC Length"] = merge2["UPC"].astype(str).str.replace(" ", "").apply(
-    lambda x: len(x) if x and x != "nan" and x != "None" else 0
-)
-# Post Process
-filtered_df = df[(df['Unit'] != 0)].sort_values(by='Document Number')
-filtered_df['Unit'] = 1
-filtered_df['Total'] = filtered_df['Value'] * filtered_df['Quantity']
-col_sum = filtered_df["Total"].sum()
-diff = col_sum - tax_liability
+    # Convert Data to Excel Sheet
+    output_path_report_excel = os.path.join(write_path, f"TP_1_IL_Report_{month_year}_Dream.xlsx")
 
-filtered_df.drop(['Temp_Price', 'Temp_Unit'], axis=1, inplace=True)
+    # Only the official TP-1-IL columns go in the report. Reporting / liability reconciliation now lives
+    # in the review workbook (report_review.py) instead of helper columns.
+    filtered_df[constants.TP_1_IL_STRUCTURE].to_excel(output_path_report_excel, index=False)
+    #filtered_df.to_csv(output_path_report_csv, index=False, header=False)
 
-print(f'{'Final ':-<40} {filtered_df.shape}')
+    # Find rows where 'Num' is NaN before dropping them
+    output_path_report_inv = os.path.join(write_path, "missing_due_to_invoice_filter.xlsx")
+    missing_due_to_invoice_filter.to_excel(output_path_report_inv, index=False)
 
-# Convert Data to Excel Sheet
-output_path_report_excel = os.path.join(privateConstants.WRITE_PATH, privateConstants.REPORT_NAME)
+    # Find missing invoices after merge1 (missing Items)
+    output_path_report_merge1 = os.path.join(write_path, "missing_after_merge1.xlsx")
+    missing_after_merge1 = inv[~inv['Item'].isin(prod['Item'])]
+    missing_after_merge1.to_excel(output_path_report_merge1, index=False)
 
-filtered_df.to_excel(output_path_report_excel, index=False)
-#filtered_df.to_csv(output_path_report_csv, index=False, header=False)
+    # Find missing invoices after merge2 (missing Customers)
+    output_path_report_merge2 = os.path.join(write_path, "missing_after_merge2.xlsx")
+    missing_after_merge2 = merge1[~merge1['Customer'].isin(cust['Customer'])]
+    missing_after_merge2.to_excel(output_path_report_merge2, index=False)
 
-# Find rows where 'Num' is NaN before dropping them
-output_path_report_inv = os.path.join(privateConstants.WRITE_PATH, "missing_due_to_invoice_filter.xlsx")
-missing_due_to_invoice_filter = inv[inv['Num'].isna()]
-missing_due_to_invoice_filter.to_excel(output_path_report_inv, index=False)
-
-# Find missing invoices after merge1 (missing Items)
-output_path_report_merge1 = os.path.join(privateConstants.WRITE_PATH, "missing_after_merge1.xlsx")
-missing_after_merge1 = inv[~inv['Item'].isin(prod['Item'])]
-missing_after_merge1.to_excel(output_path_report_merge1, index=False)
-
-# Find missing invoices after merge2 (missing Customers)
-output_path_report_merge2 = os.path.join(privateConstants.WRITE_PATH, "missing_after_merge2.xlsx")
-missing_after_merge2 = merge1[~merge1['Customer'].isin(cust['Customer'])]
-missing_after_merge2.to_excel(output_path_report_merge2, index=False)
-
-# Find missing invoices after filtering (Unit == 0)
-output_path_report_final = os.path.join(privateConstants.WRITE_PATH, "missing_after_filtering.xlsx")
-missing_after_filtering = merge2[merge2["UNIT"] == 0]
-missing_after_filtering.to_excel(output_path_report_final, index=False)
+    # Find missing invoices after filtering (Unit == 0)
+    output_path_report_final = os.path.join(write_path, "missing_after_filtering.xlsx")
+    missing_after_filtering = merge2[merge2["UNIT"] == 0]
+    missing_after_filtering.to_excel(output_path_report_final, index=False)
 
 
-# ================================
-# 👇 Add "Report" and "Liability" after last column of first row using openpyxl
-# ================================
-from openpyxl import load_workbook
 
-# Load the workbook
-wb = load_workbook(output_path_report_excel)
-ws = wb.active  # or wb["Sheet1"] if you know the name
+    print(f"Missing due to invoice filter: {missing_due_to_invoice_filter.shape[0]}")
+    print(f"Missing after first merge: {missing_after_merge1.shape[0]}")
+    print(f"Missing after second merge: {missing_after_merge2.shape[0]}")
+    print(f"Missing after filtering: {missing_after_filtering.shape[0]}")
 
-# Find the last column used
-last_col = ws.max_column # type: ignore
+    # 👇 Columns to exclude from missing-data check
+    exclude_cols = ["Price", "Weight/Volume"]
 
-# Write "Report" and "Liability" in first row after last column
-ws.cell(row=1, column=last_col + 1, value="Reporting") # type: ignore
-ws.cell(row=1, column=last_col + 2, value="Liability") # type: ignore
-ws.cell(row=1, column=last_col + 3, value = "Difference") # type: ignore
+    # 👇 Subset of the DataFrame to actually check
+    check_df = filtered_df.drop(columns=exclude_cols, errors="ignore")
 
-ws.cell(row=2, column=last_col + 1, value=col_sum) # type: ignore
-ws.cell(row=2, column=last_col + 2, value=tax_liability) # type: ignore
-ws.cell(row=2, column=last_col + 3, value = diff) # type: ignore
-
-# Save workbook
-wb.save(output_path_report_excel)
-
-print(f"Missing due to invoice filter: {missing_due_to_invoice_filter.shape[0]}")
-print(f"Missing after first merge: {missing_after_merge1.shape[0]}")
-print(f"Missing after second merge: {missing_after_merge2.shape[0]}")
-print(f"Missing after filtering: {missing_after_filtering.shape[0]}")
-
-# 👇 Columns to exclude from missing-data check
-exclude_cols = ["Price", "Weight/Volume"]
-
-# 👇 Subset of the DataFrame to actually check
-check_df = filtered_df.drop(columns=exclude_cols, errors="ignore")
-
-# 👇 Build mask for missing or blank values (only on subset)
-missing_rows_mask = (
-    check_df.isna().any(axis=1) |
-    check_df.apply(lambda row: row.astype(str).str.strip().eq("").any(), axis=1)
-)
-
-# 👇 Extract rows from the original DataFrame
-missing_rows = filtered_df[missing_rows_mask]
-
-# Optional: list which columns were missing (excluding the ignored ones)
-def find_missing_columns(row):
-    return ", ".join(
-        col for col in check_df.columns
-        if pd.isna(row[col]) or str(row[col]).strip() == ""
+    # 👇 Build mask for missing or blank values (only on subset)
+    missing_rows_mask = (
+        check_df.isna().any(axis=1) |
+        check_df.apply(lambda row: row.astype(str).str.strip().eq("").any(), axis=1)
     )
 
-missing_rows = missing_rows.copy()
-missing_rows["Missing Columns"] = filtered_df.apply(find_missing_columns, axis=1)
+    # 👇 Extract rows from the original DataFrame
+    missing_rows = filtered_df[missing_rows_mask]
 
-# Move "Missing Columns" to the first column
-cols = missing_rows.columns.tolist()
-cols.remove("Missing Columns")  # remove it from its current position
-cols = ["Missing Columns"] + cols  # put it first
-missing_rows = missing_rows[cols]
+    # Optional: list which columns were missing (excluding the ignored ones)
+    def find_missing_columns(row):
+        return ", ".join(
+            col for col in check_df.columns
+            if pd.isna(row[col]) or str(row[col]).strip() == ""
+        )
 
-# 👇 Export
-output_path_missing_data = os.path.join(privateConstants.WRITE_PATH, "rows_with_missing_data.xlsx")
-missing_rows.to_excel(output_path_missing_data, index=False)
+    missing_rows = missing_rows.copy()
+    # Compute on missing_rows itself - assigning a full-length Series to an empty frame re-expands it
+    # to every row, which made the "Missing data rows exported" count equal the whole report
+    missing_rows["Missing Columns"] = missing_rows.apply(find_missing_columns, axis=1) if len(missing_rows) else ""
 
-autoresize_and_filter(output_path_report_excel,privateConstants.REPORT_SHEET_NAME)
-print(f"Missing data rows exported: {missing_rows.shape[0]} rows\n")
+    # Move "Missing Columns" to the first column
+    cols = missing_rows.columns.tolist()
+    cols.remove("Missing Columns")  # remove it from its current position
+    cols = ["Missing Columns"] + cols  # put it first
+    missing_rows = missing_rows[cols]
+
+    # 👇 Export
+    output_path_missing_data = os.path.join(write_path, "rows_with_missing_data.xlsx")
+    missing_rows.to_excel(output_path_missing_data, index=False)
+
+    autoresize_and_filter(output_path_report_excel,privateConstants.REPORT_SHEET_NAME)
+    print(f"Missing data rows exported: {missing_rows.shape[0]} rows\n")
